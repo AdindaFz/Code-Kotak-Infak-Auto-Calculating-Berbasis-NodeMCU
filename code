@@ -1,0 +1,401 @@
+#include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+#include <ArduinoJson.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
+#define S2 D0       /Define S2 Pin Number of ESP8266/
+#define S3 D3       /Define S3 Pin Number of ESP8266/
+#define sensorOut D4 /Define Sensor Output Pin Number of ESP8266/
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
+
+#define IR_100 D5
+#define IR_200 D7
+#define IR_500 D8
+
+const char *ssid = "Your SSID";
+const char *password = "Your Password";
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 28800); // Adjust 28800 to your timezone offset
+
+String weekDays[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+String months[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+WiFiClientSecure client;
+
+//----------------------------------------Host & httpsPort
+const char* host = "script.google.com";
+const int httpsPort = 443;
+//----------------------------------------
+
+char column_name_in_sheets[][20] = {"value1", "value2"};
+String Sheets_GAS_ID = "Your Sheet GAS ID";
+int No_of_Parameters = 2;
+
+
+int Red = 0;
+int Green = 0;
+int Blue = 0;
+int Frequency = 0;
+bool statusUang = false;
+bool msg = false;
+int Uang = 0;
+int Coin100 = 0;
+int Coin200 = 0;
+int Coin500 = 0;
+
+int currentHour = 0;
+int currentMinute = 0;
+int currentSecond = 0;
+
+
+void setup() {
+  // Initialize Serial communication
+  Serial.begin(115200);
+  
+  // Initialize WiFi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("WiFi connected. IP address: ");
+  Serial.println(WiFi.localIP());
+
+  // Initialize OLED display
+  display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
+  display.clearDisplay();
+  display.display(); // Initialize and clear the display
+  
+  timeClient.begin();
+  timeClient.setTimeOffset(19800);
+
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+  display.setTextWrap(false);
+
+  // Initialize GPIO pins
+  pinMode(S2, OUTPUT);
+  pinMode(S3, OUTPUT);
+  pinMode(sensorOut, INPUT);
+  pinMode(IR_100, INPUT);
+  pinMode(IR_200, INPUT);
+  pinMode(IR_500, INPUT);
+
+  timeClient.update();
+  currentHour = timeClient.getHours();
+  currentMinute = timeClient.getMinutes();
+  currentSecond = timeClient.getSeconds();
+
+  client.setInsecure();  // Add this line to make the connection insecure
+}
+
+void loop() {
+  readRGB();
+  detectCurrency();
+  detectCoins();
+}
+
+void displaydate() {
+  display.clearDisplay();
+  timeClient.update();
+
+  time_t epochTime = timeClient.getEpochTime();
+  Serial.print("Epoch Time: ");
+  Serial.println(epochTime);
+  
+  String formattedTime = timeClient.getFormattedTime();
+  Serial.print("Formatted Time: ");
+  Serial.println(formattedTime); 
+
+  int currentHour = timeClient.getHours();
+  int currentMinute = timeClient.getMinutes();
+  
+  String timeToDisplay = String(currentHour) + ":" + (currentMinute < 10 ? "0" + String(currentMinute) : String(currentMinute));
+
+  String weekDay = weekDays[timeClient.getDay()];
+  Serial.print("Week Day: ");
+  Serial.println(weekDay); 
+
+  // Get a time structure
+  struct tm *ptm = gmtime ((time_t *)&epochTime); 
+
+  int monthDay = ptm->tm_mday;
+  Serial.print("Month day: ");
+  Serial.println(monthDay);
+
+  int currentMonth = ptm->tm_mon + 1;
+  Serial.print("Month: ");
+  Serial.println(currentMonth);
+
+  String currentMonthName = months[currentMonth - 1];
+  Serial.print("Month name: ");
+  Serial.println(currentMonthName);
+
+  int currentYear = ptm->tm_year + 1900;
+  Serial.print("Year: ");
+  Serial.println(currentYear);
+
+  // Print complete date:
+  String currentDate = String(monthDay) + "/" + String(currentMonth) + "/" + String(currentYear);
+  Serial.print("Current date: ");
+  Serial.println(currentDate);
+
+  Serial.println("");
+
+  // Display date and time on OLED
+  display.clearDisplay();
+
+  // Display date
+  display.setCursor(63, 0);
+  display.setTextSize(1);
+  display.print(currentDate);
+  display.display();
+
+  //Display weekday
+  display.setCursor(0, 0);
+  display.setTextSize(1);  // Increase the text size for better readability
+  display.print(weekDay);
+  display.display();
+
+  // Display time
+  // display.clearDisplay();
+  // display.setCursor(0, 0);
+  // display.setTextSize(2);  // Increase the text size for better readability
+  // display.print(timeToDisplay);
+  // display.display();
+}
+
+void displayThanks(){
+  display.setCursor(27, 21);
+  display.println("Terima kasih ");
+  display.setTextSize(1);
+  display.display();
+    
+  display.setCursor(22, 30);
+  display.println("telah berinfaq");
+  display.setTextSize(1);
+  display.display();
+}
+
+void displayThanks2(){
+  display.setCursor(27, 21);
+  display.println("Terima kasih ");
+  display.setTextSize(1);
+  display.display();
+    
+  display.setCursor(22, 30);
+  display.println("telah berinfaq");
+  display.setTextSize(1);
+  display.display();
+
+  display.setCursor(19, 37);
+  display.println("tunggu beberapa saat");
+  display.setTextSize(1);
+  display.display();
+}
+
+void detectCurrency() {
+  timeClient.update();
+  int Red = getRed();
+  delay(200); // Tunggu sebentar untuk stabilitas nilai
+  int Green = getGreen();
+  delay(200); // Tunggu sebentar untuk stabilitas nilai
+  int Blue = getBlue();
+  delay(200); // Tunggu sebentar untuk stabilitas nilai
+
+  // Menggunakan nilai Red, Green, Blue untuk membedakan koin/uang
+  if (Red > 50 && Red < 54 && Green > 54 && Green < 56 && Blue > 56 && Blue < 59 && statusUang == 0) {  //parameter masing-masing uang harus dikalibrasi manual
+    Serial.println("1rb");
+    Uang = 1000;
+    statusUang = !statusUang;
+  } else if (Red > 35 && Red < 40 && Green > 32 && Green < 37 && Blue > 25 && Blue < 30 && statusUang == 0) {  //parameter masing-masing uang harus dikalibrasi manual
+    Serial.println("2rb");
+    Uang = 2000;
+    statusUang = !statusUang;
+  } else if (Red > 20 && Red < 28 && Green > 25 && Green < 35 && Blue > 25 && Blue < 35 && statusUang == 0) {  //parameter masing-masing uang harus dikalibrasi manual
+    Serial.println("5rb");
+    Uang = 5000;
+    statusUang = !statusUang;
+  } else if (Red > 30 && Red < 37 && Green > 35 && Green < 40 && Blue > 25 && Blue < 30 && statusUang == 0) {  //parameter masing-masing uang harus dikalibrasi manual
+    Serial.println("10rb");
+    Uang = 10000;
+    statusUang = !statusUang;
+  } else if (Red > 22 && Red < 27 && Green > 18 && Green < 23 && Blue > 17 && Blue < 22 && statusUang == 0) {  //parameter masing-masing uang harus dikalibrasi manual
+    Serial.println("20rb");
+    Uang = 20000;
+    statusUang = !statusUang;
+  } else if (Red > 3000 && Red < 3500 && Green > 3500 && Green < 4200 && Blue > 1900 && Blue < 2500 && statusUang == 0) {  //parameter masing-masing uang harus dikalibrasi manual
+    Serial.println("50rb");
+    Uang = 50000;
+    statusUang = !statusUang;
+  } else if (Red > 17 && Red < 22 && Green > 23 && Green < 29 && Blue > 19 && Blue < 25 && statusUang == 0) {  //parameter masing-masing uang harus dikalibrasi manual
+    Serial.println("100rb");
+    Uang = 100000;
+    statusUang = !statusUang;
+  } else if (Red > 10000 && Green > 10000 && Blue > 100) {  //reset
+    statusUang = false;
+    msg = false;
+  }
+  if (Uang>0) {
+    sendData(Uang);
+    displayThanks2();
+    delay(10000);
+    display.clearDisplay();
+    Uang=0;
+  }
+  displaydate();
+  displayAdditionalMessage();
+  display.display(); 
+}
+
+void detectCoins() {
+  timeClient.update();
+  int IRvalue100 = digitalRead(IR_100);
+  int IRvalue200 = digitalRead(IR_200);
+  int IRvalue500 = digitalRead(IR_500);
+  // int IRvalue1000 = digitalRead(IR_1000);
+
+  // Deteksi koin 100
+  if (IRvalue100 == LOW) {
+    Uang = 100;
+    Coin100++;
+    Serial.println("Deteksi koin 100");
+    displayThanks();
+    sendData(Uang);
+    Uang=0;
+    delay(200);
+  }
+
+  // Deteksi koin 200
+  if (IRvalue200 == LOW) {
+    Uang = 200;
+    Coin200++;
+    Serial.println("Deteksi koin 200");      
+    displayThanks();  
+    sendData(Uang);
+    Uang=0;
+    delay(200);
+  }
+
+  // Deteksi koin 500
+  if (IRvalue500 == LOW) {
+    Uang = 500;
+    Coin500++;
+    Serial.println("Deteksi koin 500"); 
+    displayThanks();  
+    sendData(Uang);
+    Uang=0;
+    delay(200);
+  }
+  displaydate();
+  displayAdditionalMessage();
+  display.display(); 
+}
+
+// Fungsi untuk pembacaan nilai sensor RGB
+void readRGB() {
+  Red = getRed();
+  delay(200);
+  Green = getGreen();
+  delay(200);
+  Blue = getBlue();
+  delay(200);
+  Serial.print("Red Freq = ");
+  Serial.print(Red); /Print Red Color Value on Serial Monitor/
+  Serial.print("   ");
+  Serial.print("Green Freq = ");
+  Serial.print(Green); /Print Green Color Value on Serial Monitor/
+  Serial.print("   ");
+  Serial.print("Blue Freq = ");
+  Serial.println(Blue); /Print Blue Color Value on Serial Monitor/
+}
+
+// Fungsi untuk menampilkan pesan tambahan pada OLED
+void displayAdditionalMessage() {
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(27, 21);
+  display.println("Infaq Yuk!");
+  display.display();
+}
+
+void sendData(int nominal) {
+  Serial.println("==========");
+  Serial.print("connecting to ");
+  Serial.println(host);
+  
+  //----------------------------------------Connect to Google host
+  if (!client.connect(host, httpsPort)) {
+   Serial.println("connection failed");
+   return;
+  }
+  //----------------------------------------
+ 
+  //----------------------------------------Processing data and sending data
+  String string_nominal =  String(Uang);
+  String url = "https://script.google.com/macros/s/AKfycbysUMjHc7qmMFdUuNsRvWA8ONi0Kp7T7K8Gjqp6qi1ida1TpsUaKtnQ2gj5dMQDsxwt/exec?value1=" + string_nominal;
+  Serial.print("requesting URL: ");
+  Serial.println(url);
+ 
+  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+         "Host: " + host + "\r\n" +
+         "User-Agent: BuildFailureDetectorESP8266\r\n" +
+         "Connection: close\r\n\r\n");
+ 
+  Serial.println("request sent");
+  //----------------------------------------
+ 
+  //----------------------------------------Checking whether the data was sent successfully or not
+  while (client.connected()) {
+    String line = client.readStringUntil('\n');
+    if (line == "\r") {
+      Serial.println("headers received");
+      break;
+    }
+  }
+  String line = client.readStringUntil('\n');
+  if (line.startsWith("{\"state\":\"success\"")) {
+    Serial.println("esp8266/Arduino CI successfull!");
+  } else {
+    Serial.println("esp8266/Arduino CI has failed");
+  }
+  Serial.print("reply was : ");
+  Serial.println(line);
+  Serial.println("closing connection");
+  Serial.println("==========");
+  Serial.println();
+}
+
+int getRed() {
+  digitalWrite(S2, LOW);
+  digitalWrite(S3, LOW);
+  Frequency = pulseIn(sensorOut, LOW); /Get the Red Color Frequency/
+  return Frequency;
+}
+
+int getGreen() {
+  digitalWrite(S2, HIGH);
+  digitalWrite(S3, HIGH);
+  Frequency = pulseIn(sensorOut, LOW); /Get the Green Color Frequency/
+  return Frequency;
+}
+
+int getBlue() {
+  digitalWrite(S2, LOW);
+  digitalWrite(S3, HIGH);
+  Frequency = pulseIn(sensorOut, LOW); /Get the Blue Color Frequency/
+  return Frequency;
+}
